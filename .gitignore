@@ -32,3 +32,14 @@ cleaned_question_bank*.json
 # Optional: if you don't want to commit the full question bank
 # src/data/questions.json
 
+# Environment variables (never commit real keys)
+.env
+.env.local
+.env.*.local
+
+# Server data (SQLite database files - do not commit actual data)
+server/data/
+*.db
+*.db-shm
+*.db-wal
+

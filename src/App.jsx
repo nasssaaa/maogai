@@ -17,14 +17,9 @@ const TOTAL_QUESTIONS = ALL_QUESTIONS.length;
 const CHAPTERS = [1, 2, 3, 4, 5, 6, 7, 8];
 const TYPES = ['单选题', '多选题'];
 
+// Only used for persisting the auth token (so you stay logged in after refresh)
 const LS_KEYS = {
-  SUPPLEMENTS: 'tiku-supplements',
-  MASTERED: 'tiku-mastered',
-  BOOKMARKS: 'tiku-bookmarks',
-  WRONGS: 'tiku-wrongs',
-  USERS: 'tiku-users',
-  CURRENT_USER: 'tiku-current-user',
-  EXAM_HISTORY: 'tiku-exam-history',
+  TOKEN: 'tiku-auth-token',
 };
 
 function normalizeAnswer(str) {
@@ -62,17 +57,16 @@ function getEffectiveForQuestion(q, supplementsMap) {
 }
 
 export default function App() {
-  // Per-user data (loaded via currentUser effect when logged in)
+  // === Per-user progress data (loaded from / saved to our backend server) ===
   const [supplements, setSupplements] = useState({});
   const [mastered, setMastered] = useState(new Set());
   const [bookmarks, setBookmarks] = useState(new Set());
   const [wrongs, setWrongs] = useState(new Set());
 
-  // === Login / Multi-user system ===
-  const [currentUser, setCurrentUser] = useState(() => localStorage.getItem(LS_KEYS.CURRENT_USER) || null);
-  const [users, setUsers] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(LS_KEYS.USERS) || '{}'); } catch { return {}; }
-  });
+  // Auth
+  const [token, setToken] = useState(() => localStorage.getItem(LS_KEYS.TOKEN) || null);
+  const [currentUser, setCurrentUser] = useState(null); // username from server
+  const [authLoading, setAuthLoading] = useState(true);
 
   // Login form state
   const [loginUsername, setLoginUsername] = useState('');
@@ -80,55 +74,49 @@ export default function App() {
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [loginError, setLoginError] = useState('');
 
-  // Last practice session for "continue previous progress" (loaded/saved per user)
-  const [lastPractice, setLastPractice] = useState(null); // { ids: number[], idx: number, timestamp: number } | null
+  // Last practice session
+  const [lastPractice, setLastPractice] = useState(null);
 
   // === Exam Mode ===
-  const [examState, setExamState] = useState('setup'); // 'setup' | 'taking' | 'results'
+  const [examState, setExamState] = useState('setup');
   const [examQuestions, setExamQuestions] = useState([]);
-  const [examAnswers, setExamAnswers] = useState({}); // { [qid]: 'A' | string[] }
+  const [examAnswers, setExamAnswers] = useState({});
   const [examTimeLeft, setExamTimeLeft] = useState(30 * 60);
   const [examResult, setExamResult] = useState(null);
   const [examCurrentIdx, setExamCurrentIdx] = useState(0);
   const [examNumSingle, setExamNumSingle] = useState(30);
   const [examNumMulti, setExamNumMulti] = useState(20);
 
-  // Exam history (per user)
-  const [examHistory, setExamHistory] = useState([]); // array of {id, timestamp, date, score, correct, total, single, multi, timeUsed, isTimeout, questionIds, userAnswers}
+  const [examHistory, setExamHistory] = useState([]);
 
-  // Load per-user data when currentUser changes
-  useEffect(() => {
-    if (!currentUser) return;
-    const prefix = `tiku-${currentUser}-`;
+  // Simple API helper that attaches the JWT
+  async function apiFetch(path, options = {}) {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options.headers,
+    };
+    const res = await fetch(path, { ...options, headers });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `请求失败 (${res.status})`);
+    }
+    return res.json();
+  }
+
+  // Load user data from our backend
+  async function loadDataFromServer() {
     try {
-      const sup = JSON.parse(localStorage.getItem(prefix + LS_KEYS.SUPPLEMENTS) || '{}');
-      setSupplements(sup);
-      const mast = new Set(JSON.parse(localStorage.getItem(prefix + LS_KEYS.MASTERED) || '[]'));
-      setMastered(mast);
-      const book = new Set(JSON.parse(localStorage.getItem(prefix + LS_KEYS.BOOKMARKS) || '[]'));
-      setBookmarks(book);
-      const wr = new Set(JSON.parse(localStorage.getItem(prefix + LS_KEYS.WRONGS) || '[]'));
-      setWrongs(wr);
-
-      // Load last practice session for resume
-      const lastIdsStr = localStorage.getItem(prefix + 'last-practice-ids');
-      const lastIdxStr = localStorage.getItem(prefix + 'last-practice-idx');
-      if (lastIdsStr) {
-        const lastIds = JSON.parse(lastIdsStr);
-        const lastIdx = parseInt(lastIdxStr || '0', 10);
-        if (lastIds.length > 0) {
-          setLastPractice({ ids: lastIds, idx: lastIdx, timestamp: Date.now() });
-        }
-      }
-
-      // Load exam history
-      const histStr = localStorage.getItem(prefix + LS_KEYS.EXAM_HISTORY);
-      if (histStr) {
-        try { setExamHistory(JSON.parse(histStr)); } catch { setExamHistory([]); }
-      } else {
-        setExamHistory([]);
-      }
-    } catch {
+      const data = await apiFetch('/api/data');
+      setSupplements(data.supplements || {});
+      setMastered(new Set(data.mastered || []));
+      setBookmarks(new Set(data.bookmarks || []));
+      setWrongs(new Set(data.wrongs || []));
+      setLastPractice(data.last_practice || null);
+      setExamHistory(data.exam_history || []);
+    } catch (e) {
+      console.error('Failed to load data from server:', e);
+      // start with empty on error
       setSupplements({});
       setMastered(new Set());
       setBookmarks(new Set());
@@ -136,108 +124,146 @@ export default function App() {
       setLastPractice(null);
       setExamHistory([]);
     }
-  }, [currentUser]);
+  }
 
-  // Persist per-user data (override the old global saves)
-  useEffect(() => {
-    if (!currentUser) return;
-    const prefix = `tiku-${currentUser}-`;
-    localStorage.setItem(prefix + LS_KEYS.SUPPLEMENTS, JSON.stringify(supplements));
-  }, [supplements, currentUser]);
-
-  useEffect(() => {
-    if (!currentUser) return;
-    const prefix = `tiku-${currentUser}-`;
-    localStorage.setItem(prefix + LS_KEYS.MASTERED, JSON.stringify([...mastered]));
-  }, [mastered, currentUser]);
-
-  useEffect(() => {
-    if (!currentUser) return;
-    const prefix = `tiku-${currentUser}-`;
-    localStorage.setItem(prefix + LS_KEYS.BOOKMARKS, JSON.stringify([...bookmarks]));
-  }, [bookmarks, currentUser]);
-
-  useEffect(() => {
-    if (!currentUser) return;
-    const prefix = `tiku-${currentUser}-`;
-    localStorage.setItem(prefix + LS_KEYS.WRONGS, JSON.stringify([...wrongs]));
-  }, [wrongs, currentUser]);
-
-  // Persist last practice (for resume)
-  useEffect(() => {
-    if (!currentUser) return;
-    const prefix = `tiku-${currentUser}-`;
-    if (lastPractice && lastPractice.ids && lastPractice.ids.length > 0) {
-      localStorage.setItem(prefix + 'last-practice-ids', JSON.stringify(lastPractice.ids));
-      localStorage.setItem(prefix + 'last-practice-idx', String(lastPractice.idx || 0));
-    } else {
-      localStorage.removeItem(prefix + 'last-practice-ids');
-      localStorage.removeItem(prefix + 'last-practice-idx');
+  // Save current progress to server (called after important changes)
+  async function saveDataToServer(overrides = {}) {
+    if (!token) return;
+    try {
+      await apiFetch('/api/data', {
+        method: 'POST',
+        body: JSON.stringify({
+          supplements: overrides.supplements ?? supplements,
+          mastered: Array.from(overrides.mastered ?? mastered),
+          bookmarks: Array.from(overrides.bookmarks ?? bookmarks),
+          wrongs: Array.from(overrides.wrongs ?? wrongs),
+          last_practice: overrides.last_practice ?? lastPractice,
+          exam_history: overrides.exam_history ?? examHistory,
+        }),
+      });
+    } catch (e) {
+      console.error('Failed to save data to server:', e);
     }
-  }, [lastPractice, currentUser]);
+  }
 
-  // Persist exam history
+  // Auto-save on changes (debounced)
   useEffect(() => {
-    if (!currentUser) return;
-    const prefix = `tiku-${currentUser}-`;
-    localStorage.setItem(prefix + LS_KEYS.EXAM_HISTORY, JSON.stringify(examHistory || []));
-  }, [examHistory, currentUser]);
+    if (!token) return;
+    const t = setTimeout(() => {
+      saveDataToServer();
+    }, 700);
+    return () => clearTimeout(t);
+  }, [supplements, mastered, bookmarks, wrongs, lastPractice, examHistory, token]);
 
-  // Persist users list and current user
-  useEffect(() => {
-    localStorage.setItem(LS_KEYS.USERS, JSON.stringify(users));
-  }, [users]);
-
-  useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem(LS_KEYS.CURRENT_USER, currentUser);
-    } else {
-      localStorage.removeItem(LS_KEYS.CURRENT_USER);
+  // Helper: decode username from JWT (no verification needed on client for display)
+  function getUsernameFromToken(t) {
+    if (!t) return null;
+    try {
+      const payload = JSON.parse(atob(t.split('.')[1]));
+      return payload.username || null;
+    } catch {
+      return null;
     }
-  }, [currentUser]);
+  }
 
-  // Auth helpers
-  const handleRegister = () => {
+  // On mount or token change: if we have a token, try to load data
+  useEffect(() => {
+    let cancelled = false;
+    setAuthLoading(true);
+
+    if (token) {
+      const uname = getUsernameFromToken(token);
+      if (uname) setCurrentUser(uname);
+      loadDataFromServer().finally(() => {
+        if (!cancelled) setAuthLoading(false);
+      });
+    } else {
+      setCurrentUser(null);
+      setAuthLoading(false);
+    }
+
+    return () => { cancelled = true; };
+  }, [token]);
+
+  // === Auth (calls our backend /api/auth/* ) ===
+  const handleRegister = async () => {
     const uname = loginUsername.trim();
     if (!uname || !loginPassword) {
       setLoginError('用户名和密码不能为空');
       return;
     }
-    if (users[uname]) {
-      setLoginError('用户名已存在');
+    if (uname.length < 2) {
+      setLoginError('用户名至少 2 个字符');
       return;
     }
-    const newUsers = { ...users, [uname]: loginPassword };
-    setUsers(newUsers);
-    // Initialize empty data for new user (will be saved on first interaction)
-    setCurrentUser(uname);
-    setLoginUsername('');
-    setLoginPassword('');
     setLoginError('');
-    setIsRegisterMode(false);
+
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: uname, password: loginPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setLoginError(data.error || '注册失败');
+        return;
+      }
+      localStorage.setItem(LS_KEYS.TOKEN, data.token);
+      setToken(data.token);
+      setCurrentUser(data.user.username);
+      setLoginUsername('');
+      setLoginPassword('');
+      setIsRegisterMode(false);
+    } catch (e) {
+      setLoginError('注册失败，请检查网络或服务器是否运行');
+    }
   };
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     const uname = loginUsername.trim();
-    if (!users[uname] || users[uname] !== loginPassword) {
-      setLoginError('用户名或密码错误');
+    if (!uname || !loginPassword) {
+      setLoginError('用户名和密码不能为空');
       return;
     }
-    setCurrentUser(uname);
-    setLoginUsername('');
-    setLoginPassword('');
     setLoginError('');
+
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: uname, password: loginPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setLoginError(data.error || '登录失败');
+        return;
+      }
+      localStorage.setItem(LS_KEYS.TOKEN, data.token);
+      setToken(data.token);
+      setCurrentUser(data.user.username);
+      setLoginUsername('');
+      setLoginPassword('');
+    } catch (e) {
+      setLoginError('登录失败，请检查服务器是否在运行 (npm run dev)');
+    }
   };
 
   const handleLogout = () => {
-    // data already persisted via effects
+    localStorage.removeItem(LS_KEYS.TOKEN);
+    setToken(null);
     setCurrentUser(null);
-    // clear in-memory sensitive states
-    setLoginUsername('');
-    setLoginPassword('');
-    setLoginError('');
-    setIsRegisterMode(false);
+    // clear in-memory data
+    setSupplements({});
+    setMastered(new Set());
+    setBookmarks(new Set());
+    setWrongs(new Set());
+    setLastPractice(null);
     setExamHistory([]);
+    setExamState('setup');
+    setExamQuestions([]);
+    setExamAnswers({});
+    setExamResult(null);
   };
 
   // UI state
@@ -568,6 +594,9 @@ export default function App() {
       userAnswers: { ...examAnswers }
     };
     setExamHistory(prev => [historyRecord, ...(prev || [])].slice(0, 100)); // keep last 100
+
+    // Explicit immediate save for exam result
+    saveDataToServer({ exam_history: [historyRecord, ...(examHistory || [])].slice(0, 100) });
 
     if (isTimeout) {
       showToast('时间到，考试自动提交');
@@ -970,22 +999,35 @@ export default function App() {
     e.target.value = '';
   }
 
-  function resetAllUserData() {
-    if (!currentUser) return;
+  async function resetAllUserData() {
+    if (!currentUser || !token) return;
     if (!confirm(`确定要清空用户 "${currentUser}" 的所有进度吗？此操作不可恢复。`)) return;
 
-    const prefix = `tiku-${currentUser}-`;
-    localStorage.removeItem(prefix + LS_KEYS.SUPPLEMENTS);
-    localStorage.removeItem(prefix + LS_KEYS.MASTERED);
-    localStorage.removeItem(prefix + LS_KEYS.BOOKMARKS);
-    localStorage.removeItem(prefix + LS_KEYS.WRONGS);
+    try {
+      await apiFetch('/api/data', {
+        method: 'POST',
+        body: JSON.stringify({
+          supplements: {},
+          mastered: [],
+          bookmarks: [],
+          wrongs: [],
+          last_practice: null,
+          exam_history: [],
+        }),
+      });
+    } catch (e) {
+      // ignore, we'll clear local anyway
+    }
 
+    // Clear local state
     setSupplements({});
     setMastered(new Set());
     setBookmarks(new Set());
     setWrongs(new Set());
+    setLastPractice(null);
+    setExamHistory([]);
     endSession();
-    showToast(`用户 "${currentUser}" 的进度已重置`);
+    showToast(`用户 "${currentUser}" 的进度已重置（已同步到服务器）`);
   }
 
   // === RENDER ===
@@ -995,6 +1037,14 @@ export default function App() {
 
   // === Login Screen (if not logged in) ===
   if (!currentUser) {
+    if (authLoading) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-950">
+          <div className="text-slate-400">正在连接服务器...</div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-950 p-4">
         <div className="w-full max-w-md">
@@ -1005,7 +1055,7 @@ export default function App() {
               </div>
               <div>
                 <div className="font-semibold text-2xl tracking-tight">刷题宝</div>
-                <div className="text-xs text-slate-500 -mt-1">毛概题库 · 独立用户数据</div>
+                <div className="text-xs text-slate-500 -mt-1">毛概题库 · 服务器同步版</div>
               </div>
             </div>
 
@@ -1031,7 +1081,7 @@ export default function App() {
                   value={loginUsername} 
                   onChange={e => setLoginUsername(e.target.value)}
                   className="w-full px-4 py-3 rounded-2xl border bg-white dark:bg-slate-900"
-                  placeholder="输入用户名"
+                  placeholder="输入用户名（不同设备通用）"
                   onKeyDown={e => e.key === 'Enter' && (isRegisterMode ? handleRegister() : handleLogin())}
                 />
               </div>
@@ -1057,27 +1107,14 @@ export default function App() {
               </button>
             </div>
 
-            <div className="mt-6 text-center text-xs text-slate-500">
-              每个用户拥有完全独立的掌握进度、错题本、收藏和答案覆盖数据（保存在浏览器）
+            <div className="mt-6 text-center text-xs text-slate-500 leading-relaxed">
+              数据存储在服务器（SQLite），支持多设备 / 不同终端同步。<br />
+              同一用户名在手机和电脑上登录后进度完全一致。
             </div>
 
-            {/* Quick user switch hint */}
-            {Object.keys(users).length > 0 && (
-              <div className="mt-4 pt-4 border-t text-xs">
-                <div className="text-slate-500 mb-2">已有用户（点击快速登录）：</div>
-                <div className="flex flex-wrap gap-2">
-                  {Object.keys(users).map(u => (
-                    <button 
-                      key={u}
-                      onClick={() => { setLoginUsername(u); setLoginPassword(users[u]); setIsRegisterMode(false); setLoginError(''); }}
-                      className="px-3 py-1 text-xs border rounded-full hover:bg-slate-100 dark:hover:bg-slate-800"
-                    >
-                      {u}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+            <div className="mt-4 text-center text-[10px] text-slate-500">
+              开发时请确保后端已启动（npm run dev 会同时启动前后端）
+            </div>
           </div>
         </div>
       </div>
