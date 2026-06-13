@@ -12,7 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3888;
 const JWT_SECRET = process.env.JWT_SECRET || 'tiku-brush-dev-secret-change-in-production';
 
 // Ensure data directory exists
@@ -206,8 +206,8 @@ if (process.env.NODE_ENV === 'production' && fs.existsSync(distPath)) {
 }
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`[Server] 后端已启动 http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`[Server] 后端已启动 http://0.0.0.0:${PORT} (可通过 localhost:${PORT} 访问)`);
   console.log(`[Server] API 端点: /api/auth/login, /api/auth/register, /api/data`);
   if (process.env.NODE_ENV === 'production' && fs.existsSync(distPath)) {
     console.log(`[Server] 生产模式：同时提供前端静态文件 (dist/)`);

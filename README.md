@@ -19,34 +19,50 @@ npm install
 npm run dev
 ```
 
-- 前端开发服务器：http://localhost:5173
-- 后端自动通过 Vite proxy 提供 `/api` 接口
-- 数据文件：`server/data/tiku-brush.db` (SQLite)
+- 前端开发服务器：http://localhost:5188（Vite，绑定 0.0.0.0）
+- 后端通过 Vite 自动代理 `/api` 请求（默认后端端口 3888）
 
-生产打包后单进程运行：
+**修改后端端口（通过环境变量，无需改代码）**：
+
+```bash
+# macOS / Linux
+PORT=4000 npm run dev
+
+# Windows PowerShell / cmd（推荐）
+cross-env PORT=4000 npm run dev
+```
+
+- 前端仍使用 `/api` 路径，Vite 会自动把请求代理到你指定的 `PORT`
+- 后端会在对应端口启动，并打印实际监听地址
+- 生产环境同样生效：`cross-env PORT=4000 npm start`
+
+生产环境单进程运行：
 
 ```bash
 npm run build
 npm start
 ```
 
-此时访问 http://localhost:3001 即可同时使用前端和 API（Express 同时 serve dist/ + /api）。
+访问 http://localhost:3888（或你设置的 PORT）即可同时使用前端和所有 API。
+
+**注意**：Vite 已配置 `host: '0.0.0.0'` 和 `allowedHosts: ['wwhnb.wh1234567.com']`，可通过域名访问开发服务器。
 
 ## 开发说明
 
-- `npm run dev` 使用 concurrently 同时启动后端 (nodemon) 和前端 (vite)
-- Vite 配置了 `/api` 代理到后端 3001 端口
-- 后端使用 better-sqlite3 持久化所有用户数据
-- 注册/登录后数据立即存在服务器，不再依赖浏览器 localStorage
+- `npm run dev` 使用 concurrently 同时启动后端（nodemon）和前端（vite）
+- Vite 在 `vite.config.js` 中配置了端口 5188、host 0.0.0.0、allowedHosts，以及 `/api` 代理（读取 `process.env.PORT`）
+- 后端（`server/index.js`）默认监听 3888（`process.env.PORT || 3888`），绑定 0.0.0.0
+- 数据持久化在 `server/data/tiku-brush.db`（SQLite，better-sqlite3）
+- 所有用户数据（掌握、错题、收藏、答案补充、考试历史等）都存在服务端
 
-不同设备用相同用户名登录即可看到完全一致的进度。
+不同设备用相同用户名 + 密码登录即可看到完全一致的服务器端数据。
 
 ## 数据说明
 
 - 原始题目来自桌面 `final_mao_gai_questions.json`（已复制到 `src/data/questions.json`）
 - 本题库 **所有 508 题均已包含完整选项和答案**，可直接练习并自动批改。
 - “答案补充/覆盖”功能仍然可用，用于用户自定义修正、添加解释，或个人笔记。用户补充的答案优先级高于题库原答案。
-- **所有进度数据（掌握、错题、收藏、历史考试、最后位置）都保存在 Supabase 服务器**，跨设备自动同步。
+- **所有进度数据（掌握、错题、收藏、历史考试、最后位置）都保存在服务器 SQLite**，跨设备自动同步。
 
 ## 键盘快捷键（练习中）
 
