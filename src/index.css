@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary: #c5a26f; /* gold */
+  --primary-light: #d4af37;
+  --accent: #c5a26f;
+}
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans SC", "PingFang SC", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Black-Gold Theme: Dark base by default */
+.app-container {
+  min-height: 100vh;
+  background: #0a0a0a;
+}
+
+.app-container.light {
+  background: #f8f8f8;
+}
+
+/* Card styles - Black Gold */
+.card {
+  @apply bg-zinc-900 rounded-2xl shadow-sm border border-zinc-800 text-zinc-200;
+}
+
+.question-text {
+  font-size: 1.05rem;
+  line-height: 1.75;
+  color: #e5e5e5;
+}
+
+.blank {
+  @apply inline-block px-2.5 py-px mx-0.5 rounded bg-amber-100 text-amber-700 font-medium border border-amber-200;
+}
+.dark .blank {
+  @apply bg-amber-900/40 text-amber-300 border-amber-800;
+}
+
+/* Option button - Black Gold */
+.opt-btn {
+  @apply flex items-start gap-3 w-full text-left px-4 py-3 rounded-xl border border-zinc-700 hover:border-amber-400 hover:bg-zinc-800 active:bg-zinc-700 transition-all text-zinc-200;
+}
+.opt-btn.selected {
+  @apply border-amber-500 bg-zinc-800 ring-1 ring-amber-500;
+}
+.opt-btn.correct {
+  @apply border-emerald-500 bg-emerald-950/60 ring-1 ring-emerald-500;
+}
+.opt-btn.wrong {
+  @apply border-red-500 bg-red-950/60 ring-1 ring-red-500;
+}
+
+/* Chapter / type chips - Black Gold */
+.chip {
+  @apply px-3 py-1 text-sm rounded-full border cursor-pointer select-none transition-all active:scale-[0.985];
+}
+.chip.active {
+  @apply bg-amber-500 text-black border-amber-500 font-medium;
+}
+.chip:not(.active) {
+  @apply bg-zinc-900 border-zinc-700 hover:bg-zinc-800 text-zinc-300;
+}
+
+/* Progress */
+.progress-bar {
+  @apply h-2 bg-zinc-800 rounded-full overflow-hidden;
+}
+.progress-fill {
+  @apply h-full bg-amber-500 transition-all;
+}
+
+/* Tab */
+.tab {
+  @apply px-5 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition;
+}
+.tab.active {
+  @apply border-amber-500 text-amber-400;
+}
+.tab:not(.active) {
+  @apply border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900;
+}
+
+.q-meta {
+  @apply text-xs font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-400;
+}
+
+.stat-card {
+  @apply card p-4 text-center;
+}
+
+.session-card {
+  @apply card p-6 md:p-8 max-w-3xl mx-auto;
+}
